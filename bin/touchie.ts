@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import * as cdk from 'aws-cdk-lib';
-import { TouchieStack } from '../lib/touchie-stack';
+import { TouchieStack } from '../infra/touchie-stack';
 
 const app = new cdk.App();
 new TouchieStack(app, 'TouchieStack', {
