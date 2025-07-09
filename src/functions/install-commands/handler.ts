@@ -11,6 +11,42 @@ export const handler = async (event: any): Promise<any> => {
             type: 1,
             integration_types: [0, 1],
             contexts: [0, 1, 2],
+        },
+        {
+            name: "split",
+            description: "Creates a split entry for a given member",
+            type: 1,
+            integration_types: [0, 1],
+            contexts: [0, 1, 2],
+            options: [
+                {
+                    name: "member",
+                    description: "The @username of the member that received the split",
+                    type: 6, // USER type
+                    required: true,
+                },
+                {
+                    name: "amount",
+                    description: "The amount of the split. Format is <number><unit>. Example: 15m = 15 million",
+                    type: 3, // STRING type
+                    required: true,
+                }
+            ]
+        },
+        {
+            name: "confirm",
+            description: "Confirms a split entry for a given member",
+            type: 1,
+            integration_types: [0, 1],
+            contexts: [0, 1, 2],
+            options: [
+                {
+                    name: "code",
+                    description: "The confirmation code for the split",
+                    type: 3, // STRING type
+                    required: true,
+                }
+            ]
         }
     ];
 

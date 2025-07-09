@@ -33,8 +33,11 @@ export class Lambda extends Construct {
 
         (file.vars || []).forEach((key) => {
             switch (key) {
-                case 'DYNAMO_TOUCHIE_TABLE_NAME':
-                    env[key] = this.dynamo.tables['touchie'].tableName;
+                case 'DYNAMO_MEMBERS_TABLE_NAME':
+                    env[key] = this.dynamo.tables['members'].tableName;
+                    break;
+                case 'DYNAMO_SPLITS_TABLE_NAME':
+                    env[key] = this.dynamo.tables['splits'].tableName;
                     break;
                 default:
                     env[key] = process.env[key] || "not-set";

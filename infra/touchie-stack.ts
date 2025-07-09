@@ -18,5 +18,8 @@ export class TouchieStack extends cdk.Stack {
             'POST',
             new LambdaIntegration(lambda.functions['bot']),
         );
+
+        dynamo.tables['members'].grantReadWriteData(lambda.functions['bot']);
+        dynamo.tables['splits'].grantReadWriteData(lambda.functions['bot']);
     }
 }
