@@ -1,7 +1,7 @@
 import { APIGatewayProxyEvent, APIGatewayProxyHandler, APIGatewayProxyResult } from "aws-lambda";
 import { InteractionResponseFlags, InteractionResponseType, InteractionType, MessageComponentTypes, verifyKey } from "discord-interactions";
 import { Member } from "../../../lib/models/member";
-import { DynamoDBClient, GetItemCommand, PutItemCommand } from "@aws-sdk/client-dynamodb";
+import { DynamoDBClient, GetItemCommand, PutItemCommand, QueryCommand, QueryCommandInput, ScanCommand, ScanCommandInput } from "@aws-sdk/client-dynamodb";
 import { marshall, unmarshall } from "@aws-sdk/util-dynamodb";
 import { Split } from "../../../lib/models/split";
 
@@ -39,7 +39,39 @@ async function textResponse(content: string): Promise<APIGatewayProxyResult> {
     };
 }
 
-function convertAmount(option: any): number | null {
+async function textResponseWithMentions(content: string, userIds: string[]): Promise<APIGatewayProxyResult> {
+    const body = {
+        type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+        data: {
+            flags: InteractionResponseFlags.IS_COMPONENTS_V2,
+            components: [
+                {
+                    type: MessageComponentTypes.TEXT_DISPLAY,
+                    content: content,
+                    allowed_mentions: {
+                        parse: ["users"],
+                        users: userIds,
+                    },
+                }
+            ]
+        },
+    };
+    return {
+        statusCode: 200,
+        body: JSON.stringify(body),
+    };
+}
+
+function encodeAmount(amount: string): string {
+    const value = parseInt(amount, 10);
+    if (isNaN(value)) return "0";
+    if (value >= 1_000_000_000) return `${Math.floor(value / 1_000_000_000)}b`;
+    if (value >= 1_000_000) return `${Math.floor(value / 1_000_000)}m`;
+    if (value >= 1_000) return `${Math.floor(value / 1_000)}k`;
+    return `${value}`;
+}
+
+function decodeAmount(option: any): number | null {
     if (!option || !option.value) return null;
 
     const match = option.value.match(/^(\d+)([a-zA-Z]+)$/);
@@ -69,18 +101,31 @@ async function processSplit(splitter: Member, data: any): Promise<APIGatewayProx
         return textResponse("Please provide both member and amount options.");
     }
 
+    if (splitter.id === splittie.id) {
+        return textResponse("You cannot split with yourself. 🤡");
+    }
+
     // Store the split in the database
     const split: Split = {
         splitter: splitter.id,
         splittie: splittie.id,
-        amount: `${convertAmount(amount) || 0}`, // Convert amount to a number
+        amount: `${decodeAmount(amount) || 0}`, // Convert amount to a number
         timestamp: new Date().toISOString(),
         // Generate a 4 digit confirmation code
         confirmation: Math.random().toString(36).substring(2, 6),
+        confirmed: false,
     };
 
+    await dynamodb.send(new PutItemCommand({
+        TableName: process.env.DYNAMO_SPLITS_TABLE_NAME || "splits",
+        Item: marshall(split),
+    }));
+
     // Process the split logic here (e.g., update database, etc.)
-    return textResponse(`@${splittie.username} type \`/confirm ${split.confirmation}\` to confirm the ${amount.value} split from @${splitter.username}.`);
+    return textResponseWithMentions(
+        `<@${splittie.id}> type \`/confirm ${split.confirmation}\` to confirm the ${amount.value} split from <@${splitter.id}>.`,
+        [splittie.id, splitter.id]
+    );
 }
 
 async function findOrCreateMember(body: any): Promise<Member | null> {
@@ -126,14 +171,17 @@ async function processConfirm(member: Member, data: any): Promise<APIGatewayProx
         const params = {
             TableName: process.env.DYNAMO_SPLITS_TABLE_NAME || "splits",
             IndexName: "splittieIndex",
-            Key: marshall({
-                splittie: member.id,
-                confirmation: confirmationCode.value,
+            KeyConditionExpression: "splittie = :splittie AND confirmation = :confirmation",
+            ExpressionAttributeValues: marshall({
+                ":splittie": member.id,
+                ":confirmation": confirmationCode.value,
             }),
-        };
-        const result = await dynamodb.send(new GetItemCommand(params));
-        if (result.Item) {
-            const split = unmarshall(result.Item) as Split;
+            Limit: 1, // We only need one split to confirm
+        } as QueryCommandInput;
+
+        const result = await dynamodb.send(new QueryCommand(params));
+        if (result.Items && result.Items.length > 0) {
+            const split = unmarshall(result.Items[0]) as Split;
             split.confirmed = true; // Mark the split as confirmed
 
             await dynamodb.send(new PutItemCommand({
@@ -161,7 +209,7 @@ async function processConfirm(member: Member, data: any): Promise<APIGatewayProx
                 Item: marshall(splitter),
             }));
 
-            return textResponse(`Split confirmed for @${member.username}.`);
+            return textResponseWithMentions(`Split confirmed for @${member.id}.`, [member.id]);
         } else {
             return textResponse("No split found with the provided confirmation code.");
         }
@@ -171,9 +219,55 @@ async function processConfirm(member: Member, data: any): Promise<APIGatewayProx
     }
 }
 
+async function printBoard(guildId: string): Promise<APIGatewayProxyResult> {
+    try {
+        const params = {
+            TableName: process.env.DYNAMO_MEMBERS_TABLE_NAME || "members",
+            IndexName: "guildIndex",
+            ProjectionExpression: "username, totalSplit",
+            KeyConditionExpression: "guild = :guildId",
+            ExpressionAttributeValues: marshall({
+                ":guildId": guildId,
+            }),
+        } as QueryCommandInput;
+        const members: Member[] = [];
+        let nextToken: Record<string, any> | undefined = undefined;
+        do {
+            params.ExclusiveStartKey = nextToken;
+            const result = await dynamodb.send(new QueryCommand(params));
+            if (result.Items) {
+                members.push(...result.Items.map(item => unmarshall(item) as Member));
+            }
+            nextToken = result.LastEvaluatedKey ? result.LastEvaluatedKey : undefined;
+        } while (nextToken);
+
+        let nameLength = "Member".length;
+        let totalLength = "Total Split".length;
+
+        members.forEach(member => {
+            nameLength = Math.max(nameLength, member.username.length);
+            totalLength = Math.max(totalLength, member.totalSplit.length);
+        });
+
+        let markdown = "```markdown\n# Touchie Board\n\n";
+        markdown += `| ${"Member".padEnd(nameLength)} | ${"Total Split".padEnd(totalLength)} |\n`;
+        markdown += `| ${"-".repeat(nameLength)} | ${"-".repeat(totalLength)} |\n`;
+        const sorted = members.sort((a, b) => parseInt(b.totalSplit) - parseInt(a.totalSplit));
+        sorted.forEach(member => {
+            markdown += `| ${member.username.padEnd(nameLength)} | ${encodeAmount(member.totalSplit).padEnd(totalLength)} |\n`;
+        });
+        markdown += "```";
+
+        return textResponse(markdown);
+    } catch (error) {
+        console.error("Error printing board:", error);
+        return textResponse("An error occurred while printing the board.");
+    }
+}
+
 export const handler: APIGatewayProxyHandler = async (event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> => {
     const body = JSON.parse(event.body || "{}");
-    console.log(body);
+
     if (!(await verifyRequest(event.headers, event.body))) {
         console.log("Request verification failed");
         return {
@@ -196,8 +290,6 @@ export const handler: APIGatewayProxyHandler = async (event: APIGatewayProxyEven
             };
         case InteractionType.APPLICATION_COMMAND:
             // Handle application command interaction
-            console.log(data);
-
             switch (data.name) {
                 case "ping":
                     // Respond to the ping command
@@ -214,6 +306,8 @@ export const handler: APIGatewayProxyHandler = async (event: APIGatewayProxyEven
                         return textResponse("Failed to find or create member.");
                     }
                     return processConfirm(member, body.data);
+                case "board":
+                    return printBoard(body.guild_id);
                 default:
                     // Handle unknown commands
                     console.log(`Unknown command: ${data.name}`);
