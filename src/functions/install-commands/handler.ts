@@ -54,6 +54,13 @@ export const handler = async (event: any): Promise<any> => {
             type: 1,
             integration_types: [0, 1],
             contexts: [0, 1, 2],
+        },
+        {
+            name: "help",
+            description: "Prints the help message",
+            type: 1,
+            integration_types: [0, 1],
+            contexts: [0, 1, 2],
         }
     ];
 

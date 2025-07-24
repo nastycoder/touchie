@@ -4,6 +4,7 @@ import { Member } from "../../../lib/models/member";
 import { DynamoDBClient, GetItemCommand, PutItemCommand, QueryCommand, QueryCommandInput, ScanCommand, ScanCommandInput } from "@aws-sdk/client-dynamodb";
 import { marshall, unmarshall } from "@aws-sdk/util-dynamodb";
 import { Split } from "../../../lib/models/split";
+import { helpText } from "./help-text";
 
 const dynamodb = new DynamoDBClient({});
 
@@ -102,7 +103,7 @@ async function processSplit(splitter: Member, data: any): Promise<APIGatewayProx
     }
 
     if (splitter.id === splittie.id) {
-        return textResponse("You cannot split with yourself. 🤡");
+        return textResponseWithMentions(`You cannot split with yourself. <@${splitter.id}> is a 🤡`, [splitter.id]);
     }
 
     // Store the split in the database
@@ -182,6 +183,9 @@ async function processConfirm(member: Member, data: any): Promise<APIGatewayProx
         const result = await dynamodb.send(new QueryCommand(params));
         if (result.Items && result.Items.length > 0) {
             const split = unmarshall(result.Items[0]) as Split;
+            if (split.confirmed) {
+                return textResponse("This split has already been confirmed.");
+            }
             split.confirmed = true; // Mark the split as confirmed
 
             await dynamodb.send(new PutItemCommand({
@@ -209,7 +213,7 @@ async function processConfirm(member: Member, data: any): Promise<APIGatewayProx
                 Item: marshall(splitter),
             }));
 
-            return textResponseWithMentions(`Split confirmed for @${member.id}.`, [member.id]);
+            return textResponseWithMentions(`Split confirmed for <@${member.id}>.`, [member.id]);
         } else {
             return textResponse("No split found with the provided confirmation code.");
         }
@@ -265,6 +269,10 @@ async function printBoard(guildId: string): Promise<APIGatewayProxyResult> {
     }
 }
 
+async function printHelp(): Promise<APIGatewayProxyResult> {
+    return textResponse(helpText);
+}
+
 export const handler: APIGatewayProxyHandler = async (event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> => {
     const body = JSON.parse(event.body || "{}");
 
@@ -308,6 +316,8 @@ export const handler: APIGatewayProxyHandler = async (event: APIGatewayProxyEven
                     return processConfirm(member, body.data);
                 case "board":
                     return printBoard(body.guild_id);
+                case "help":
+                    return printHelp();
                 default:
                     // Handle unknown commands
                     console.log(`Unknown command: ${data.name}`);
