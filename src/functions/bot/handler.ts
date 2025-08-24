@@ -78,7 +78,7 @@ function decodeAmount(option: any): number | null {
     const match = option.value.match(/^(\d+)([a-zA-Z]+)$/);
     if (!match) return null;
 
-    const value = parseInt(match[1], 10);
+    const value = parseFloat(match[1]);
     const unit = match[2].toLowerCase();
 
     // Convert units to a standard format (e.g., thousand, million, billion)
