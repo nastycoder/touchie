@@ -64,7 +64,9 @@ async function textResponseWithMentions(content: string, userIds: string[]): Pro
 }
 
 function encodeAmount(amount: string): string {
-    const value = parseInt(amount, 10);
+    console.log("Encoding amount:", amount);
+    const value = parseFloat(amount);
+    console.log("Parsed value:", value);
     if (isNaN(value)) return "0";
     if (value >= 1_000_000_000) return `${Math.floor(value / 1_000_000_000)}b`;
     if (value >= 1_000_000) return `${Math.floor(value / 1_000_000)}m`;
@@ -73,14 +75,16 @@ function encodeAmount(amount: string): string {
 }
 
 function decodeAmount(option: any): number | null {
+    console.log("Decoding amount:", option);
     if (!option || !option.value) return null;
 
-    const match = option.value.match(/^(\d+)([a-zA-Z]+)$/);
+    const match = option.value.match(/([-+]?\d*\.?\d+)([kmb]?)/);
     if (!match) return null;
 
     const value = parseFloat(match[1]);
     const unit = match[2].toLowerCase();
-
+    console.log("Parsed value:", value);
+    console.log("Parsed unit:", unit);
     // Convert units to a standard format (e.g., thousand, million, billion)
     switch (unit) {
         case "k":
@@ -206,7 +210,7 @@ async function processConfirm(member: Member, data: any): Promise<APIGatewayProx
             }
 
             // Update the totalSplit for the splitter
-            splitter.totalSplit = (parseInt(splitter.totalSplit) + parseInt(split.amount)).toString();
+            splitter.totalSplit = (parseFloat(splitter.totalSplit) + parseFloat(split.amount)).toString();
 
             await dynamodb.send(new PutItemCommand({
                 TableName: process.env.DYNAMO_MEMBERS_TABLE_NAME || "members",
@@ -256,7 +260,7 @@ async function printBoard(guildId: string): Promise<APIGatewayProxyResult> {
         let markdown = "```markdown\n# Touchie Board\n\n";
         markdown += `| ${"Member".padEnd(nameLength)} | ${"Total Split".padEnd(totalLength)} |\n`;
         markdown += `| ${"-".repeat(nameLength)} | ${"-".repeat(totalLength)} |\n`;
-        const sorted = members.sort((a, b) => parseInt(b.totalSplit) - parseInt(a.totalSplit));
+        const sorted = members.sort((a, b) => parseFloat(b.totalSplit) - parseFloat(a.totalSplit));
         sorted.forEach(member => {
             markdown += `| ${member.username.padEnd(nameLength)} | ${encodeAmount(member.totalSplit).padEnd(totalLength)} |\n`;
         });
