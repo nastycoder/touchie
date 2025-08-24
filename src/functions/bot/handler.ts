@@ -1,26 +1,13 @@
 import { APIGatewayProxyEvent, APIGatewayProxyHandler, APIGatewayProxyResult } from "aws-lambda";
-import { InteractionResponseFlags, InteractionResponseType, InteractionType, MessageComponentTypes, verifyKey } from "discord-interactions";
+import { InteractionResponseFlags, InteractionResponseType, InteractionType, MessageComponentTypes } from "discord-interactions";
 import { Member } from "../../../lib/models/member";
 import { DynamoDBClient, GetItemCommand, PutItemCommand, QueryCommand, QueryCommandInput, ScanCommand, ScanCommandInput } from "@aws-sdk/client-dynamodb";
 import { marshall, unmarshall } from "@aws-sdk/util-dynamodb";
 import { Split } from "../../../lib/models/split";
 import { helpText } from "./help-text";
+import { verifyRequest } from "./auth";
 
 const dynamodb = new DynamoDBClient({});
-
-async function verifyRequest(headers: APIGatewayProxyEvent["headers"], body: string | null): Promise<boolean> {
-    if (!headers || !headers["x-signature-ed25519"] || !headers["x-signature-timestamp"]) {
-        console.error("Missing required headers for verification");
-        return false;
-    }
-
-    return verifyKey(
-        body || "",
-        headers["x-signature-ed25519"],
-        headers["x-signature-timestamp"],
-        process.env.DISCORD_PUBLIC_KEY || ""
-    );
-}
 
 async function textResponse(content: string): Promise<APIGatewayProxyResult> {
     return {
@@ -94,7 +81,8 @@ function decodeAmount(option: any): number | null {
         case "b":
             return value * 1_000_000_000;
         default:
-            return null; // Unsupported unit
+            if (isNaN(value)) return null;  // Unsupported unit
+            return value;
     }
 }
 
