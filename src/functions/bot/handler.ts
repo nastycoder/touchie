@@ -5,6 +5,7 @@ import { DynamoDBClient, GetItemCommand, PutItemCommand, QueryCommand, QueryComm
 import { marshall, unmarshall } from "@aws-sdk/util-dynamodb";
 import { Split } from "../../../lib/models/split";
 import { helpText } from "./help-text";
+import { JsonFileLogDriver } from "aws-cdk-lib/aws-ecs";
 
 const dynamodb = new DynamoDBClient({});
 
@@ -38,6 +39,46 @@ async function textResponse(content: string): Promise<APIGatewayProxyResult> {
             },
         }),
     };
+}
+
+async function embeddedTextResponse(content: string): Promise<APIGatewayProxyResult> {
+    //https://discord.com/developers/docs/components/reference#section
+    //I wanted to use a Container for this but I'm not sure it's actually the correct component
+    //The Embed component is a legacy component and not part of the COMPONENTS_V2 paradigm
+    return {
+        statusCode: 200,
+        body: JSON.stringify({
+            type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+            data:{
+                flags: InteractionResponseFlags.IS_COMPONENTS_V2,
+                components: [
+                    {
+                        type: MessageComponentTypes.SECTION,
+                        components: [
+                            {
+                                type: MessageComponentTypes.TEXT_DISPLAY,
+                                content: "# Touchie Board Split Tracker"
+                            },
+                            {
+                                type: MessageComponentTypes.TEXT_DISPLAY,
+                                content: content
+                            },
+                            {
+                                type: MessageComponentTypes.TEXT_DISPLAY,
+                                content: "-# Use the Touchie /help command to learn more"
+                            }
+                        ],
+                        accessory: {
+                            type: MessageComponentTypes.THUMBNAIL,
+                            media:{
+                                URL: "https://oldschool.runescape.wiki/images/Old_School_RuneScape_client_icon_%28alternative%29.png?9fcc3" //Temporary image of the OSRS client icon from OSRS wiki - replace with whatever
+                            }
+                        }
+                    }
+                ]
+            }
+        })
+    }
 }
 
 async function textResponseWithMentions(content: string, userIds: string[]): Promise<APIGatewayProxyResult> {
@@ -253,20 +294,16 @@ async function printBoard(guildId: string): Promise<APIGatewayProxyResult> {
         let totalLength = "Total Split".length;
 
         members.forEach(member => {
-            nameLength = Math.max(nameLength, member.username.length);
+            //using member.id here instead of member.username because a member's discord id is highly likely to be longer than whatever display name they chose, since we're not using their raw usernames anymore
+            nameLength = Math.max(nameLength, member.id.length); 
             totalLength = Math.max(totalLength, member.totalSplit.length);
         });
-
-        let markdown = "```markdown\n# Touchie Board\n\n";
-        markdown += `| ${"Member".padEnd(nameLength)} | ${"Total Split".padEnd(totalLength)} |\n`;
-        markdown += `| ${"-".repeat(nameLength)} | ${"-".repeat(totalLength)} |\n`;
         const sorted = members.sort((a, b) => parseFloat(b.totalSplit) - parseFloat(a.totalSplit));
-        sorted.forEach(member => {
-            markdown += `| ${member.username.padEnd(nameLength)} | ${encodeAmount(member.totalSplit).padEnd(totalLength)} |\n`;
-        });
-        markdown += "```";
 
-        return textResponse(markdown);
+        let boardContent = `**${"Member".padEnd(nameLength)}**  **${"Total Split".padEnd(totalLength)}**\n`;
+        //I'll admit I'm not 100% sure what will happen with the padding when discord translates the <@[member.id]> string to the @displayname tag in the message
+        boardContent += sorted.map((member) => `${`<@${member.id}>`.padEnd(nameLength)}  ${encodeAmount(member.totalSplit).padEnd(totalLength)}`).join('\n')
+        return embeddedTextResponse(boardContent);
     } catch (error) {
         console.error("Error printing board:", error);
         return textResponse("An error occurred while printing the board.");
