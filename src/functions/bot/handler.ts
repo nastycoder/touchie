@@ -108,9 +108,9 @@ function encodeAmount(amount: string): string {
     const value = parseFloat(amount);
     console.log("Parsed value:", value);
     if (isNaN(value)) return "0";
-    if (value >= 1_000_000_000) return `${Math.floor(value / 1_000_000_000)}b`;
-    if (value >= 1_000_000) return `${Math.floor(value / 1_000_000)}m`;
-    if (value >= 1_000) return `${Math.floor(value / 1_000)}k`;
+    if (value >= 1_000_000_000) return `${(value / 1_000_000_000).toFixed(2)}b`;
+    if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(2)}m`;
+    if (value >= 1_000) return `${(value / 1_000).toFixed(2)}k`;
     return `${value}`;
 }
 
