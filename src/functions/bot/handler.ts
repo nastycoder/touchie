@@ -5,7 +5,6 @@ import { DynamoDBClient, GetItemCommand, PutItemCommand, QueryCommand, QueryComm
 import { marshall, unmarshall } from "@aws-sdk/util-dynamodb";
 import { Split } from "../../../lib/models/split";
 import { helpText } from "./help-text";
-import { JsonFileLogDriver } from "aws-cdk-lib/aws-ecs";
 
 const dynamodb = new DynamoDBClient({});
 
